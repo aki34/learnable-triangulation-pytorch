@@ -80,6 +80,7 @@ for subject_idx, subject in enumerate(retval['subject_names']):
 # Fill bounding boxes
 bboxes = np.load(sys.argv[3], allow_pickle=True).item()
 
+
 def square_the_bbox(bbox):
     top, left, bottom, right = bbox
     width = right - left
@@ -96,6 +97,7 @@ def square_the_bbox(bbox):
 
     return top, left, bottom, right
 
+
 for subject in bboxes.keys():
     for action in bboxes[subject].keys():
         for camera, bbox_array in bboxes[subject][action].items():
@@ -103,9 +105,9 @@ for subject in bboxes.keys():
                 bbox[:] = square_the_bbox(bbox)
 
 # Change this line if you want to use Mask-RCNN or SSD bounding boxes instead of H36M's "ground truth".
-BBOXES_SOURCE = 'GT' # or 'MRCNN' or 'SSD'
+BBOXES_SOURCE = 'GT'  # or 'MRCNN' or 'SSD'
 
-if BBOXES_SOURCE is not 'GT':
+if BBOXES_SOURCE != 'GT':
     def replace_gt_bboxes_with_cnn(bboxes_gt, bboxes_detected_path, detections_file_list):
         """
             Replace ground truth bounding boxes with boxes from a CNN detector.
@@ -124,8 +126,8 @@ if BBOXES_SOURCE is not 'GT':
                 filename, action_name = filename[:slash_idx], filename[slash_idx+1:]
                 subject_name = filename[filename.rfind('/')+1:]
 
-                bbox, _ = bbox[:4], bbox[4] # throw confidence away
-                bbox = square_the_bbox([bbox[1], bbox[0], bbox[3]+1, bbox[2]+1]) # LTRB to TLBR
+                bbox, _ = bbox[:4], bbox[4]  # throw confidence away
+                bbox = square_the_bbox([bbox[1], bbox[0], bbox[3]+1, bbox[2]+1])  # LTRB to TLBR
                 bboxes_gt[subject_name][action_name][camera_name][frame_idx] = bbox
 
     detections_paths = {
@@ -169,7 +171,7 @@ for subject_idx, subject in enumerate(retval['subject_names']):
             camera_path = os.path.join(action_path, camera)
             if os.path.isdir(camera_path):
                 frame_idxs = sorted([int(name[4:-4])-1 for name in os.listdir(camera_path)])
-                assert len(frame_idxs) > 15, 'Too few frames in %s' % camera_path # otherwise WTF
+                assert len(frame_idxs) > 15, 'Too few frames in %s' % camera_path  # otherwise WTF
                 break
         else:
             raise FileNotFoundError(action_path)

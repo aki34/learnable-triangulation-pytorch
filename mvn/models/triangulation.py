@@ -145,7 +145,6 @@ class AlgebraicTriangulationNet(nn.Module):
         self.heatmap_softmax = config.model.heatmap_softmax
         self.heatmap_multiplier = config.model.heatmap_multiplier
 
-
     def forward(self, images, proj_matricies, batch):
         device = images.device
         batch_size, n_views = images.shape[:2]

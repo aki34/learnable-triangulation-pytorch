@@ -9,6 +9,8 @@ from itertools import islice
 import pickle
 import copy
 
+from barbar import Bar
+
 import numpy as np
 import cv2
 
@@ -26,7 +28,7 @@ from mvn.models.triangulation import RANSACTriangulationNet, AlgebraicTriangulat
 from mvn.models.loss import KeypointsMSELoss, KeypointsMSESmoothLoss, KeypointsMAELoss, KeypointsL2Loss, VolumetricCELoss
 
 from mvn.utils import img, multiview, op, vis, misc, cfg
-from mvn.datasets import human36m
+from mvn.datasets import human36m_custom as mvdatasets
 from mvn.datasets import utils as dataset_utils
 
 
@@ -50,8 +52,8 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
     train_dataloader = None
     if is_train:
         # train
-        train_dataset = human36m.Human36MMultiViewDataset(
-            h36m_root=config.dataset.train.h36m_root,
+        train_dataset = mvdatasets.MultiViewDataset(
+            data_root=config.dataset.train.h36m_root,
             pred_results_path=config.dataset.train.pred_results_path if hasattr(config.dataset.train, "pred_results_path") else None,
             train=True,
             test=False,
@@ -80,8 +82,8 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
         )
 
     # val
-    val_dataset = human36m.Human36MMultiViewDataset(
-        h36m_root=config.dataset.val.h36m_root,
+    val_dataset = mvdatasets.MultiViewDataset(
+        data_root=config.dataset.val.h36m_root,
         pred_results_path=config.dataset.val.pred_results_path if hasattr(config.dataset.val, "pred_results_path") else None,
         train=False,
         test=True,
@@ -111,7 +113,7 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
 
 
 def setup_dataloaders(config, is_train=True, distributed_train=False):
-    if config.dataset.kind == 'human36m':
+    if config.dataset.kind in ['human36m', 'humaneva']:
         train_dataloader, val_dataloader, train_sampler = setup_human36m_dataloaders(config, is_train, distributed_train)
     else:
         raise NotImplementedError("Unknown dataset: {}".format(config.dataset.kind))
@@ -170,11 +172,18 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
     with grad_context():
         end = time.time()
 
-        iterator = enumerate(dataloader)
+        iterator = enumerate(Bar(dataloader))
         if is_train and config.opt.n_iters_per_epoch is not None:
             iterator = islice(iterator, config.opt.n_iters_per_epoch)
 
+        # if is_train:
+        #     each_batch_num = length / config.opt.batch_size
+        # else:
+        #     each_batch_num = length/ config.opt.val_batch_size
+        # iter_i = 0
         for iter_i, batch in iterator:
+            # print('ITER[{:>5d} / {:>5d}]'.format(iter_i*each_batch_num, length))
+            # iter_i += 1
             with autograd.detect_anomaly():
                 # measure data loading time
                 data_time.update(time.time() - end)
@@ -215,7 +224,12 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                 # calculate loss
                 total_loss = 0.0
-                loss = criterion(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
+                if dataloader.dataset.kind == 'humaneva':
+                    h36m_eval_idx = [4, 1, 14, 11, 15, 10, 13, 12, 5, 0]
+                    heva_eval_idx = [11, 15, 3, 7, 5, 9, 2, 6, 13, 17]
+                    loss = criterion(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, heva_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, heva_eval_idx])
+                else:           
+                    loss = criterion(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
                 total_loss += loss
                 metric_dict[f'{config.opt.criterion}'].append(loss.item())
 
@@ -244,7 +258,10 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     opt.step()
 
                 # calculate metrics
-                l2 = KeypointsL2Loss()(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
+                if dataloader.dataset.kind == 'humaneva':
+                    l2 = KeypointsL2Loss()(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, heva_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, heva_eval_idx])
+                else:
+                    l2 = KeypointsL2Loss()(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
                 metric_dict['l2'].append(l2.item())
 
                 # base point l2
@@ -270,10 +287,15 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                 # plot visualization
                 if master:
-                    if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
+                    # if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
+                    if True:
                         vis_kind = config.kind
                         if (config.transfer_cmu_to_human36m if hasattr(config, "transfer_cmu_to_human36m") else False):
                             vis_kind = "coco"
+                        if vis_kind == 'humaneva':
+                            pred_kind = 'human36m'
+                        else:
+                            pred_kind = None
 
                         for batch_i in range(min(batch_size, config.vis_n_elements)):
                             keypoints_vis = vis.visualize_batch(
@@ -283,7 +305,8 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                                 cuboids_batch=cuboids_pred,
                                 confidences_batch=confidences_pred,
                                 batch_index=batch_i, size=5,
-                                max_n_cols=10
+                                max_n_cols=10,
+                                pred_kind=pred_kind
                             )
                             writer.add_image(f"{name}/keypoints_vis/{batch_i}", keypoints_vis.transpose(2, 0, 1), global_step=n_iters_total)
 
@@ -342,7 +365,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             results['indexes'] = np.concatenate(results['indexes'])
 
             try:
-                scalar_metric, full_metric = dataloader.dataset.evaluate(results['keypoints_3d'])
+                scalar_metric, full_metric = dataloader.dataset.evaluate(results['keypoints_3d'], results['indexes'])
             except Exception as e:
                 print("Failed to evaluate. Reason: ", e)
                 scalar_metric, full_metric = 0.0, {}
@@ -357,7 +380,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 pickle.dump(results, fout)
 
             # dump full metric
-            with open(os.path.join(checkpoint_dir, "metric.json".format(epoch)), 'w') as fout:
+            with open(os.path.join(checkpoint_dir, "metric.json"), 'w') as fout:
                 json.dump(full_metric, fout, indent=4, sort_keys=True)
 
         # dump to tensorboard per-epoch stats
@@ -389,6 +412,7 @@ def main(args):
     master = True
     if is_distributed and os.environ["RANK"]:
         master = int(os.environ["RANK"]) == 0
+    print('MASTER:', master)
 
     if is_distributed:
         device = torch.device(args.local_rank)
@@ -442,7 +466,7 @@ def main(args):
 
 
     # datasets
-    print("Loading data...")
+    print("Loading data... {}".format(config.kind))
     train_dataloader, val_dataloader, train_sampler = setup_dataloaders(config, distributed_train=is_distributed)
 
     # experiment
@@ -457,7 +481,9 @@ def main(args):
     if not args.eval:
         # train loop
         n_iters_total_train, n_iters_total_val = 0, 0
+        print('TRAINNUM:',len(train_dataloader.dataset), 'VALNUM:', len(val_dataloader.dataset))
         for epoch in range(config.opt.n_epochs):
+            print('EPOCH[{:4d}/{:4d}]'.format(epoch, config.opt.n_epochs))
             if train_sampler is not None:
                 train_sampler.set_epoch(epoch)
 

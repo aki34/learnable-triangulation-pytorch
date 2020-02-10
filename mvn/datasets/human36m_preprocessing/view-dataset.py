@@ -11,14 +11,21 @@ import cv2
 
 import os, sys
 
+if len(sys.argv) < 5:
+    print('usage')
+    exit()
+
 h36m_root = sys.argv[1]
 labels_path = sys.argv[2]
 
-try:    sample_idx = int(sys.argv[3])
-except: sample_idx = 0
+# try:    sample_idx = int(sys.argv[3])
+# except: sample_idx = 0
 
-try:    step = int(sys.argv[4])
-except: step = 10
+# try:    step = int(sys.argv[4])
+# except: step = 10
+
+# sample_idx = int(sys.argv[3])
+# step = int(sys.argv[4])
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../.."))
 from mvn.datasets.human36m import Human36MMultiViewDataset
@@ -45,6 +52,7 @@ sample_idx = 0 # number of sample to start from
 step = 10 # in frames
 
 while True:
+    print(sample_idx)
     sample = dataset[sample_idx]
 
     camera_idx = 0

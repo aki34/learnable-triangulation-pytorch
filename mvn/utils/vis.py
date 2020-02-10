@@ -20,6 +20,7 @@ CONNECTIVITY_DICT = {
     "mpii": [(0, 1), (1, 2), (2, 6), (5, 4), (4, 3), (3, 6), (6, 7), (7, 8), (8, 9), (8, 12), (8, 13), (10, 11), (11, 12), (13, 14), (14, 15)],
     "human36m": [(0, 1), (1, 2), (2, 6), (5, 4), (4, 3), (3, 6), (6, 7), (7, 8), (8, 16), (9, 16), (8, 12), (11, 12), (10, 11), (8, 13), (13, 14), (14, 15)],
     "kth": [(0, 1), (1, 2), (5, 4), (4, 3), (6, 7), (7, 8), (11, 10), (10, 9), (2, 3), (3, 9), (2, 8), (9, 12), (8, 12), (12, 13)],
+    "humaneva": [(0, 1), (0, 2), (0, 6), (0, 19), (1, 10), (1, 14), (2, 3), (3, 5), (6, 7), (7, 9), (10, 11), (11, 13), (14, 15), (16, 17)]
 }
 
 COLOR_DICT = {
@@ -127,7 +128,7 @@ def visualize_batch(images_batch, heatmaps_batch, keypoints_2d_batch, proj_matri
         keypoints_2d = to_numpy(keypoints_2d_batch)[batch_index]
         for view_i in range(n_cols):
             axes[row_i][view_i].imshow(images[view_i])
-            draw_2d_pose(keypoints_2d[view_i], axes[row_i][view_i], kind=kind)
+            draw_2d_pose(keypoints_2d[view_i], axes[row_i][view_i], kind=pred_kind)
         row_i += 1
 
     # 2D keypoints (gt projected)

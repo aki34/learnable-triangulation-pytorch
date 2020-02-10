@@ -72,7 +72,8 @@ class Human36MMultiViewDataset(Dataset):
         n_cameras = len(self.labels['camera_names'])
         assert all(camera_idx in range(n_cameras) for camera_idx in self.ignore_cameras)
 
-        train_subjects = ['S1', 'S5', 'S6', 'S7', 'S8']
+        # train_subjects = ['S1', 'S5', 'S6', 'S7', 'S8']
+        train_subjects = ['S1']
         test_subjects = ['S9', 'S11']
 
         train_subjects = list(self.labels['subject_names'].index(x) for x in train_subjects)
@@ -81,7 +82,7 @@ class Human36MMultiViewDataset(Dataset):
         indices = []
         if train:
             mask = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
-            indices.append(np.nonzero(mask)[0])
+            indices.append(np.nonzero(mask)[0][::3])
         if test:
             mask = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
 
@@ -232,7 +233,7 @@ class Human36MMultiViewDataset(Dataset):
 
         return subject_scores
 
-    def evaluate(self, keypoints_3d_predicted, split_by_subject=False, transfer_cmu_to_human36m=False, transfer_human36m_to_human36m=False):
+    def evaluate(self, keypoints_3d_predicted, idx, split_by_subject=False, transfer_cmu_to_human36m=False, transfer_human36m_to_human36m=False):
         keypoints_gt = self.labels['table']['keypoints'][:, :self.num_keypoints]
         if keypoints_3d_predicted.shape != keypoints_gt.shape:
             raise ValueError(
@@ -250,7 +251,7 @@ class Human36MMultiViewDataset(Dataset):
             keypoints_3d_predicted = keypoints_3d_predicted[:, cmu_joints]
 
         # mean error per 16/17 joints in mm, for each pose
-        per_pose_error = np.sqrt(((keypoints_gt - keypoints_3d_predicted) ** 2).sum(2)).mean(1)
+        per_pose_error = np.sqrt(((keypoints_gt[idx] - keypoints_3d_predicted) ** 2).sum(2)).mean(1)
 
         # relative mean error per 16/17 joints in mm, for each pose
         if not (transfer_cmu_to_human36m or transfer_human36m_to_human36m):
