@@ -7,17 +7,17 @@ from datetime import datetime
 from collections import defaultdict
 from itertools import islice
 import pickle
-import copy
+# import copy
 
 from barbar import Bar
 
 import numpy as np
-import cv2
+# import cv2
 
 import torch
-from torch import nn
+# from torch import nn
 from torch import autograd
-import torch.nn.functional as F
+# import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel
@@ -72,7 +72,7 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
         train_dataloader = DataLoader(
             train_dataset,
             batch_size=config.opt.batch_size,
-            shuffle=config.dataset.train.shuffle and (train_sampler is None), # debatable
+            shuffle=config.dataset.train.shuffle and (train_sampler is None),  # debatable
             sampler=train_sampler,
             collate_fn=dataset_utils.make_collate_fn(randomize_n_views=config.dataset.train.randomize_n_views,
                                                      min_n_views=config.dataset.train.min_n_views,
@@ -113,7 +113,7 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
 
 
 def setup_dataloaders(config, is_train=True, distributed_train=False):
-    if config.dataset.kind in ['human36m', 'humaneva']:
+    if config.dataset.kind in ['human36m', 'humaneva', 'ama']:
         train_dataloader, val_dataloader, train_sampler = setup_human36m_dataloaders(config, is_train, distributed_train)
     else:
         raise NotImplementedError("Unknown dataset: {}".format(config.dataset.kind))
@@ -228,7 +228,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     h36m_eval_idx = [4, 1, 14, 11, 15, 10, 13, 12, 5, 0]
                     heva_eval_idx = [11, 15, 3, 7, 5, 9, 2, 6, 13, 17]
                     loss = criterion(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, heva_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, heva_eval_idx])
-                else:           
+                else:
                     loss = criterion(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
                 total_loss += loss
                 metric_dict[f'{config.opt.criterion}'].append(loss.item())
@@ -292,7 +292,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                         vis_kind = config.kind
                         if (config.transfer_cmu_to_human36m if hasattr(config, "transfer_cmu_to_human36m") else False):
                             vis_kind = "coco"
-                        if vis_kind == 'humaneva':
+                        if vis_kind in ['humaneva', 'ama']:
                             pred_kind = 'human36m'
                         else:
                             pred_kind = None
@@ -458,12 +458,11 @@ def main(args):
                 [{'params': model.backbone.parameters()},
                  {'params': model.process_features.parameters(), 'lr': config.opt.process_features_lr if hasattr(config.opt, "process_features_lr") else config.opt.lr},
                  {'params': model.volume_net.parameters(), 'lr': config.opt.volume_net_lr if hasattr(config.opt, "volume_net_lr") else config.opt.lr}
-                ],
+                 ],
                 lr=config.opt.lr
             )
         else:
             opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.opt.lr)
-
 
     # datasets
     print("Loading data... {}".format(config.kind))
@@ -481,7 +480,7 @@ def main(args):
     if not args.eval:
         # train loop
         n_iters_total_train, n_iters_total_val = 0, 0
-        print('TRAINNUM:',len(train_dataloader.dataset), 'VALNUM:', len(val_dataloader.dataset))
+        print('TRAINNUM:', len(train_dataloader.dataset), 'VALNUM:', len(val_dataloader.dataset))
         for epoch in range(config.opt.n_epochs):
             print('EPOCH[{:4d}/{:4d}]'.format(epoch, config.opt.n_epochs))
             if train_sampler is not None:
@@ -504,6 +503,7 @@ def main(args):
             one_epoch(model, criterion, opt, config, val_dataloader, device, 0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
 
     print("Done.")
+
 
 if __name__ == '__main__':
     args = parse_args()

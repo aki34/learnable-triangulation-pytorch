@@ -5,21 +5,21 @@ from tqdm import trange
 import numpy as np
 
 if len(sys.argv) < 3:
-    print('usage:')
+    print(f'USAGE: python {sys.argv[0]} <log_dir> <epoch>')
     exit()
 
 log_dir = sys.argv[1]
 epoch = int(sys.argv[2])
-result_dir = log_dir+'/checkpoints/{:04d}/'.format(epoch)
-result_file = result_dir+'results.pkl'
-out_dir = result_dir+'pose/'
-os.makedirs(out_dir, exist_ok=True)
+result_file = os.path.join(log_dir, 'checkpoints', f'{epoch:04d}', 'results.pkl')
+pose_out_dir = os.path.join(log_dir, 'pose')
+os.makedirs(pose_out_dir, exist_ok=True)
 
 with open(result_file, 'rb') as f:
     result = pickle.load(f)
+    print(result.keys())
     pose3d = result['keypoints_3d']
     idx = result['indexes']
     DATANUM = idx.shape[0]
 
     for i in trange(0, DATANUM):
-        np.savetxt(out_dir+'pose{0:06d}.txt'.format(idx[i]), pose3d[i], delimiter=';')
+        np.savetxt(os.path.join(pose_out_dir, f'pose{idx[i]:04d}.txt'), pose3d[i])

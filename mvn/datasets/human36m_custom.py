@@ -54,7 +54,7 @@ class MultiViewDataset(Dataset):
         """
         assert train or test, '`Human36MMultiViewDataset` must be constructed with at least ' \
                               'one of `test=True` / `train=True`'
-        assert kind in ("mpii", "human36m", "humaneva")
+        assert kind in ("mpii", "human36m", "humaneva", "ama")
 
         self.data_root = data_root
         self.labels_path = labels_path
@@ -72,37 +72,38 @@ class MultiViewDataset(Dataset):
         n_cameras = len(self.labels['camera_names'])
         assert all(camera_idx in range(n_cameras) for camera_idx in self.ignore_cameras)
 
-        if kind == "human36m":
-            train_subjects = ['S1', 'S5', 'S6', 'S7', 'S8']
-            # train_subjects = ['S1']
-            test_subjects = ['S9', 'S11']
-        elif kind == "humaneva":
-            train_subjects = []
-            # test_subjects = ['S1', 'S2', 'S3']
-            test_subjects = ['S1']
+        if kind != "ama":
+            if kind == "human36m":
+                train_subjects = ['S1', 'S5', 'S6', 'S7', 'S8']
+                # train_subjects = ['S1']
+                test_subjects = ['S9', 'S11']
+            elif kind == "humaneva":
+                train_subjects = []
+                # test_subjects = ['S1', 'S2', 'S3']
+                test_subjects = ['S1']
 
-        train_subjects = list(self.labels['subject_names'].index(x) for x in train_subjects)
-        test_subjects  = list(self.labels['subject_names'].index(x) for x in test_subjects)
+            train_subjects = list(self.labels['subject_names'].index(x) for x in train_subjects)
+            test_subjects  = list(self.labels['subject_names'].index(x) for x in test_subjects)
 
-        indices = []
-        if train:
-            mask = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
-            indices.append(np.nonzero(mask)[0])
-        if test:
-            mask = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
+            indices = []
+            if train:
+                mask = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
+                indices.append(np.nonzero(mask)[0])
+            if test:
+                mask = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
 
-            if not with_damaged_actions and kind == "human36m":
-                mask_S9 = self.labels['table']['subject_idx'] == self.labels['subject_names'].index('S9')
+                if not with_damaged_actions and kind == "human36m":
+                    mask_S9 = self.labels['table']['subject_idx'] == self.labels['subject_names'].index('S9')
 
-                damaged_actions = 'Greeting-2', 'SittingDown-2', 'Waiting-1'
-                damaged_actions = [self.labels['action_names'].index(x) for x in damaged_actions]
-                mask_damaged_actions = np.isin(self.labels['table']['action_idx'], damaged_actions)
+                    damaged_actions = 'Greeting-2', 'SittingDown-2', 'Waiting-1'
+                    damaged_actions = [self.labels['action_names'].index(x) for x in damaged_actions]
+                    mask_damaged_actions = np.isin(self.labels['table']['action_idx'], damaged_actions)
 
-                mask &= ~(mask_S9 & mask_damaged_actions)
+                    mask &= ~(mask_S9 & mask_damaged_actions)
 
-            indices.append(np.nonzero(mask)[0][::retain_every_n_frames_in_test])
+                indices.append(np.nonzero(mask)[0][::retain_every_n_frames_in_test])
 
-        self.labels['table'] = self.labels['table'][np.concatenate(indices)]
+            self.labels['table'] = self.labels['table'][np.concatenate(indices)]
 
         if kind == "mpii":
             self.num_keypoints = 16
@@ -118,25 +119,34 @@ class MultiViewDataset(Dataset):
             pred_results = np.load(pred_results_path, allow_pickle=True)
             keypoints_3d_pred = pred_results['keypoints_3d'][np.argsort(pred_results['indexes'])]
             self.keypoints_3d_pred = keypoints_3d_pred[::retain_every_n_frames_in_test]
+            print(len(self.keypoints_3d_pred), len(self))
             assert len(self.keypoints_3d_pred) == len(self)
 
     def __len__(self):
         return len(self.labels['table'])
 
     def __getitem__(self, idx):
-        sample = defaultdict(list) # return value
+        sample = defaultdict(list)  # return value
         shot = self.labels['table'][idx]
 
-        subject = self.labels['subject_names'][shot['subject_idx']]
+        if self.kind != 'ama':
+            subject = self.labels['subject_names'][shot['subject_idx']]
         action = self.labels['action_names'][shot['action_idx']]
         frame_idx = shot['frame_idx']
 
         for camera_idx, camera_name in enumerate(self.labels['camera_names']):
             if camera_idx in self.ignore_cameras:
                 continue
+            if self.kind == 'ama':
+                if 'march' in action or 'squat' in action:
+                    if camera_name == '7':
+                        continue
+                else:
+                    if camera_name == '5':
+                        continue
 
             # load bounding box
-            bbox = shot['bbox_by_camera_tlbr'][camera_idx][[1,0,3,2]] # TLBR to LTRB
+            bbox = shot['bbox_by_camera_tlbr'][camera_idx][[1, 0, 3, 2]]  # TLBR to LTRB
             bbox_height = bbox[2] - bbox[0]
             if bbox_height == 0:
                 # convention: if the bbox is empty, then this view is missing
@@ -147,17 +157,22 @@ class MultiViewDataset(Dataset):
 
             # load image
             if self.kind in ["human36m" or "mpii"]:
-                image_path = os.path.join(
-                    self.data_root, subject, action, 'imageSequence' + '-undistorted' * self.undistort_images,
-                    camera_name, 'img_%06d.jpg' % (frame_idx+1))
+                image_path = os.path.join(self.data_root, subject, action, 'imageSequence' + '-undistorted' * self.undistort_images, camera_name, f'img_{frame_idx+1:06d}.jpg')
+            elif self.kind == 'ama':
+                if action in ['D_march', 'D_squat', 'I_march', 'I_squat']:
+                    image_path = os.path.join(self.data_root, action, 'images', f'Camera{camera_name}_{frame_idx:04d}.jpg')
+                else:
+                    image_path = os.path.join(self.data_root, action, 'images', f'Image{camera_name}_{frame_idx:04d}.png')
             else:
-                image_path = os.path.join(
-                    self.data_root, subject, 'imageSequence', action, camera_name, 'img_%06d.jpg' % (frame_idx))
+                image_path = os.path.join(self.data_root, subject, 'imageSequence', action, camera_name, f'img_{frame_idx:06d}.jpg')
             assert os.path.isfile(image_path), '%s doesn\'t exist' % image_path
             image = cv2.imread(image_path)
 
             # load camera
-            shot_camera = self.labels['cameras'][shot['subject_idx'], camera_idx]
+            if self.kind == 'ama':
+                shot_camera = self.labels['cameras'][shot['action_idx'], camera_idx]
+            else:
+                shot_camera = self.labels['cameras'][shot['subject_idx'], camera_idx]
             retval_camera = Camera(shot_camera['R'], shot_camera['t'], shot_camera['K'], shot_camera['dist'], camera_name)
 
             if self.crop:
@@ -298,7 +313,10 @@ class MultiViewDataset(Dataset):
         keypoints_gt_relative = keypoints_gt - keypoints_gt[:, root_index:root_index + 1, :]
         keypoints_3d_predicted_relative = keypoints_3d_predicted - keypoints_3d_predicted[:, root_index:root_index + 1, :]
 
-        per_pose_error_relative = np.sqrt(((keypoints_gt_relative[:, heva_eval_idx] - keypoints_3d_predicted_relative[:, h36m_eval_idx]) ** 2).sum(2)).mean(1)
+        if self.kind == 'humaneva':
+            per_pose_error_relative = np.sqrt(((keypoints_gt_relative[:, heva_eval_idx] - keypoints_3d_predicted_relative[:, h36m_eval_idx]) ** 2).sum(2)).mean(1)
+        else:
+            per_pose_error_relative = np.sqrt(((keypoints_gt_relative - keypoints_3d_predicted_relative) ** 2).sum(2)).mean(1)
 
         result = {
             'per_pose_error': self.evaluate_using_per_pose_error(per_pose_error, split_by_subject),

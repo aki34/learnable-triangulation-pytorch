@@ -6,21 +6,22 @@
     Usage:
     python3 collect-bboxes.py <path-to-Human3.6M-root> <num-processes>
 """
-import os, sys
+import os
+import sys
 import numpy as np
 import h5py
+# Some bbox files do not exist, can be misaligned, damaged etc.
+from action_to_bbox_filename import action_to_bbox_filename
+from collections import defaultdict
 
 dataset_path = sys.argv[1]
 subjects = os.listdir(dataset_path)
 assert all(subject.startswith('S') for subject in subjects)
 
-# Some bbox files do not exist, can be misaligned, damaged etc.
-from action_to_bbox_filename import action_to_bbox_filename
-
-from collections import defaultdict
 nesteddict = lambda: defaultdict(nesteddict)
 
 bboxes_retval = nesteddict()
+
 
 def load_bboxes(dataset_path, subject, action, camera):
     print(subject, action, camera)
@@ -57,20 +58,21 @@ def load_bboxes(dataset_path, subject, action, camera):
             for frame_idx, mask_reference in enumerate(h5file['Masks'][:,0]):
                 bbox_mask = np.array(h5file[mask_reference])
                 retval[frame_idx] = mask_to_bbox(bbox_mask)
-                
                 top, left, bottom, right = retval[frame_idx]
                 if right-left < 2 or bottom-top < 2:
                     raise Exception(str(bboxes_path) + ' $ ' + str(frame_idx))
     except Exception as ex:
         # reraise with path information
         raise Exception(str(ex) + '; %s %s %s' % (subject, action, camera))
-    
+
     return retval, subject, action, camera
+
 
 # retval['S1']['Talking-1']['54534623'].shape = (n_frames, 4) # top, left, bottom, right
 def add_result_to_retval(args):
     bboxes, subject, action, camera = args
     bboxes_retval[subject][action][camera] = bboxes
+
 
 import multiprocessing
 num_processes = int(sys.argv[2])
@@ -81,7 +83,7 @@ for subject in subjects:
     subject_path = os.path.join(dataset_path, subject)
     actions = os.listdir(subject_path)
     try:
-        actions.remove('MySegmentsMat') # folder with bbox *.mat files
+        actions.remove('MySegmentsMat')  # folder with bbox *.mat files
     except ValueError:
         pass
 
@@ -102,11 +104,13 @@ pool.join()
 for async_result in async_errors:
     async_result.get()
 
+
 def freeze_defaultdict(x):
     x.default_factory = None
     for value in x.values():
         if type(value) is defaultdict:
             freeze_defaultdict(value)
+
 
 # convert to normal dict
 freeze_defaultdict(bboxes_retval)

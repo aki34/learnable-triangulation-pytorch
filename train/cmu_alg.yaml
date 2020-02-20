@@ -1,5 +1,5 @@
-title: "human36m_alg"
-kind: "human36m"
+title: "cmu_alg"
+kind: "cmu"
 vis_freq: 1000
 vis_n_elements: 10
 
