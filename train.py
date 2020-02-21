@@ -28,7 +28,7 @@ from mvn.models.triangulation import RANSACTriangulationNet, AlgebraicTriangulat
 from mvn.models.loss import KeypointsMSELoss, KeypointsMSESmoothLoss, KeypointsMAELoss, KeypointsL2Loss, VolumetricCELoss
 
 from mvn.utils import img, multiview, op, vis, misc, cfg
-from mvn.datasets import human36m_custom as mvdatasets
+from mvn.datasets import human36m as mvdatasets
 from mvn.datasets import utils as dataset_utils
 
 

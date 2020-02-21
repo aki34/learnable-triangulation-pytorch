@@ -13,12 +13,12 @@ from mvn.utils.img import get_square_bbox, resize_image, crop_image, normalize_i
 from mvn.utils import volumetric
 
 
-class Human36MMultiViewDataset(Dataset):
+class MultiViewDataset(Dataset):
     """
         Human3.6M for multiview tasks.
     """
     def __init__(self,
-                 h36m_root='/Vol1/dbstore/datasets/Human3.6M/processed/',
+                 data_root='/Vol1/dbstore/datasets/Human3.6M/processed/',
                  labels_path='/Vol1/dbstore/datasets/Human3.6M/extra/human36m-multiview-labels-SSDbboxes.npy',
                  pred_results_path=None,
                  image_shape=(256, 256),
@@ -54,9 +54,9 @@ class Human36MMultiViewDataset(Dataset):
         """
         assert train or test, '`Human36MMultiViewDataset` must be constructed with at least ' \
                               'one of `test=True` / `train=True`'
-        assert kind in ("mpii", "human36m")
+        assert kind in ("mpii", "human36m", "humaneva", "ama")
 
-        self.h36m_root = h36m_root
+        self.data_root = data_root
         self.labels_path = labels_path
         self.image_shape = None if image_shape is None else tuple(image_shape)
         self.scale_bbox = scale_bbox
@@ -72,60 +72,81 @@ class Human36MMultiViewDataset(Dataset):
         n_cameras = len(self.labels['camera_names'])
         assert all(camera_idx in range(n_cameras) for camera_idx in self.ignore_cameras)
 
-        # train_subjects = ['S1', 'S5', 'S6', 'S7', 'S8']
-        train_subjects = ['S1']
-        test_subjects = ['S9', 'S11']
+        if kind != "ama":
+            if kind == "human36m":
+                train_subjects = ['S1', 'S5', 'S6', 'S7', 'S8']
+                # train_subjects = ['S1']
+                test_subjects = ['S9', 'S11']
+            elif kind == "humaneva":
+                train_subjects = []
+                # test_subjects = ['S1', 'S2', 'S3']
+                test_subjects = ['S1']
 
-        train_subjects = list(self.labels['subject_names'].index(x) for x in train_subjects)
-        test_subjects  = list(self.labels['subject_names'].index(x) for x in test_subjects)
+            train_subjects = list(self.labels['subject_names'].index(x) for x in train_subjects)
+            test_subjects  = list(self.labels['subject_names'].index(x) for x in test_subjects)
 
-        indices = []
-        if train:
-            mask = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
-            indices.append(np.nonzero(mask)[0][::3])
-        if test:
-            mask = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
+            indices = []
+            if train:
+                mask = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
+                indices.append(np.nonzero(mask)[0])
+            if test:
+                mask = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
 
-            if not with_damaged_actions:
-                mask_S9 = self.labels['table']['subject_idx'] == self.labels['subject_names'].index('S9')
+                if not with_damaged_actions and kind == "human36m":
+                    mask_S9 = self.labels['table']['subject_idx'] == self.labels['subject_names'].index('S9')
 
-                damaged_actions = 'Greeting-2', 'SittingDown-2', 'Waiting-1'
-                damaged_actions = [self.labels['action_names'].index(x) for x in damaged_actions]
-                mask_damaged_actions = np.isin(self.labels['table']['action_idx'], damaged_actions)
+                    damaged_actions = 'Greeting-2', 'SittingDown-2', 'Waiting-1'
+                    damaged_actions = [self.labels['action_names'].index(x) for x in damaged_actions]
+                    mask_damaged_actions = np.isin(self.labels['table']['action_idx'], damaged_actions)
 
-                mask &= ~(mask_S9 & mask_damaged_actions)
+                    mask &= ~(mask_S9 & mask_damaged_actions)
 
-            indices.append(np.nonzero(mask)[0][::retain_every_n_frames_in_test])
+                indices.append(np.nonzero(mask)[0][::retain_every_n_frames_in_test])
 
-        self.labels['table'] = self.labels['table'][np.concatenate(indices)]
+            self.labels['table'] = self.labels['table'][np.concatenate(indices)]
 
-        self.num_keypoints = 16 if kind == "mpii" else 17
-        assert self.labels['table']['keypoints'].shape[1] == 17, "Use a newer 'labels' file"
+        if kind == "mpii":
+            self.num_keypoints = 16
+        elif kind == "humaneva":
+            self.num_keypoints = 20
+        else:
+            self.num_keypoints = 17
+        # self.num_keypoints = 16 if kind == "mpii" else 17
+        # assert self.labels['table']['keypoints'].shape[1] == 17, "Use a newer 'labels' file"
 
         self.keypoints_3d_pred = None
         if pred_results_path is not None:
             pred_results = np.load(pred_results_path, allow_pickle=True)
             keypoints_3d_pred = pred_results['keypoints_3d'][np.argsort(pred_results['indexes'])]
             self.keypoints_3d_pred = keypoints_3d_pred[::retain_every_n_frames_in_test]
+            print(len(self.keypoints_3d_pred), len(self))
             assert len(self.keypoints_3d_pred) == len(self)
 
     def __len__(self):
         return len(self.labels['table'])
 
     def __getitem__(self, idx):
-        sample = defaultdict(list) # return value
+        sample = defaultdict(list)  # return value
         shot = self.labels['table'][idx]
 
-        subject = self.labels['subject_names'][shot['subject_idx']]
+        if self.kind != 'ama':
+            subject = self.labels['subject_names'][shot['subject_idx']]
         action = self.labels['action_names'][shot['action_idx']]
         frame_idx = shot['frame_idx']
 
         for camera_idx, camera_name in enumerate(self.labels['camera_names']):
             if camera_idx in self.ignore_cameras:
                 continue
+            if self.kind == 'ama':
+                if 'march' in action or 'squat' in action:
+                    if camera_name == '7':
+                        continue
+                else:
+                    if camera_name == '5':
+                        continue
 
             # load bounding box
-            bbox = shot['bbox_by_camera_tlbr'][camera_idx][[1,0,3,2]] # TLBR to LTRB
+            bbox = shot['bbox_by_camera_tlbr'][camera_idx][[1, 0, 3, 2]]  # TLBR to LTRB
             bbox_height = bbox[2] - bbox[0]
             if bbox_height == 0:
                 # convention: if the bbox is empty, then this view is missing
@@ -135,14 +156,23 @@ class Human36MMultiViewDataset(Dataset):
             bbox = scale_bbox(bbox, self.scale_bbox)
 
             # load image
-            image_path = os.path.join(
-                self.h36m_root, subject, action, 'imageSequence' + '-undistorted' * self.undistort_images,
-                camera_name, 'img_%06d.jpg' % (frame_idx+1))
+            if self.kind in ["human36m" or "mpii"]:
+                image_path = os.path.join(self.data_root, subject, action, 'imageSequence' + '-undistorted' * self.undistort_images, camera_name, f'img_{frame_idx+1:06d}.jpg')
+            elif self.kind == 'ama':
+                if action in ['D_march', 'D_squat', 'I_march', 'I_squat']:
+                    image_path = os.path.join(self.data_root, action, 'images', f'Camera{camera_name}_{frame_idx:04d}.jpg')
+                else:
+                    image_path = os.path.join(self.data_root, action, 'images', f'Image{camera_name}_{frame_idx:04d}.png')
+            else:
+                image_path = os.path.join(self.data_root, subject, 'imageSequence', action, camera_name, f'img_{frame_idx:06d}.jpg')
             assert os.path.isfile(image_path), '%s doesn\'t exist' % image_path
             image = cv2.imread(image_path)
 
             # load camera
-            shot_camera = self.labels['cameras'][shot['subject_idx'], camera_idx]
+            if self.kind == 'ama':
+                shot_camera = self.labels['cameras'][shot['action_idx'], camera_idx]
+            else:
+                shot_camera = self.labels['cameras'][shot['subject_idx'], camera_idx]
             retval_camera = Camera(shot_camera['R'], shot_camera['t'], shot_camera['K'], shot_camera['dist'], camera_name)
 
             if self.crop:
@@ -162,7 +192,8 @@ class Human36MMultiViewDataset(Dataset):
                 image = normalize_image(image)
 
             sample['images'].append(image)
-            sample['detections'].append(bbox + (1.0,)) # TODO add real confidences
+            # sample['detections'].append(bbox + (1.0,)) # TODO add real confidences
+            sample['detections'].append(bbox) # TODO add real confidences
             sample['cameras'].append(retval_camera)
             sample['proj_matrices'].append(retval_camera.projection)
 
@@ -233,12 +264,13 @@ class Human36MMultiViewDataset(Dataset):
 
         return subject_scores
 
-    def evaluate(self, keypoints_3d_predicted, idx, split_by_subject=False, transfer_cmu_to_human36m=False, transfer_human36m_to_human36m=False):
+    def evaluate(self, keypoints_3d_predicted, idx, split_by_subject=False, transfer_cmu_to_human36m=False, 
+    transfer_human36m_to_human36m=False):
         keypoints_gt = self.labels['table']['keypoints'][:, :self.num_keypoints]
-        if keypoints_3d_predicted.shape != keypoints_gt.shape:
-            raise ValueError(
-                '`keypoints_3d_predicted` shape should be %s, got %s' % \
-                (keypoints_gt.shape, keypoints_3d_predicted.shape))
+        # if keypoints_3d_predicted.shape != keypoints_gt.shape:
+        #     raise ValueError(
+        #         '`keypoints_3d_predicted` shape should be %s, got %s' % \
+        #         (keypoints_gt.shape, keypoints_3d_predicted.shape))
 
         if transfer_cmu_to_human36m or transfer_human36m_to_human36m:
             human36m_joints = [10, 11, 15, 14, 1, 4]
@@ -249,9 +281,28 @@ class Human36MMultiViewDataset(Dataset):
 
             keypoints_gt = keypoints_gt[:, human36m_joints]
             keypoints_3d_predicted = keypoints_3d_predicted[:, cmu_joints]
+        
+        if self.kind == 'humaneva':
+            print('evaluate HumanEva dataset')
+            # # L/R knee, L/R elbow, L/R wrist, L/R shoulder, L/R ankle
+            # h36m_eval_idx = [4, 1, 14, 11, 15, 10, 13, 12, 5, 0]
+            # heva_eval_idx = [11, 15, 3, 7, 5, 9, 2, 6, 13, 17]            
+            # L/R knee, L/R shoulder, L/R ankle
+            # h36m_eval_idx = [4, 1, 13, 12, 5, 0]
+            # heva_eval_idx = [11, 15, 2, 6, 13, 17]
+            # L/R knee, L/R shoulder, L/R ankle, pelvis, neck
+            h36m_eval_idx = [4,   1, 13, 12,  5,  0, 6, 8]
+            heva_eval_idx = [11, 15,  2,  6, 13, 17, 1, 0]
+            print(h36m_eval_idx)
+            print(heva_eval_idx)
+            keypoints_3d_predicted_tmp = keypoints_3d_predicted[:, h36m_eval_idx]
+            keypoints_gt_tmp = keypoints_gt[:, heva_eval_idx]
+        else:
+            keypoints_3d_predicted_tmp = keypoints_3d_predicted
+            keypoints_gt_tmp = keypoints_gt
 
         # mean error per 16/17 joints in mm, for each pose
-        per_pose_error = np.sqrt(((keypoints_gt[idx] - keypoints_3d_predicted) ** 2).sum(2)).mean(1)
+        per_pose_error = np.sqrt(((keypoints_gt_tmp[idx] - keypoints_3d_predicted_tmp) ** 2).sum(2)).mean(1)
 
         # relative mean error per 16/17 joints in mm, for each pose
         if not (transfer_cmu_to_human36m or transfer_human36m_to_human36m):
@@ -262,7 +313,10 @@ class Human36MMultiViewDataset(Dataset):
         keypoints_gt_relative = keypoints_gt - keypoints_gt[:, root_index:root_index + 1, :]
         keypoints_3d_predicted_relative = keypoints_3d_predicted - keypoints_3d_predicted[:, root_index:root_index + 1, :]
 
-        per_pose_error_relative = np.sqrt(((keypoints_gt_relative - keypoints_3d_predicted_relative) ** 2).sum(2)).mean(1)
+        if self.kind == 'humaneva':
+            per_pose_error_relative = np.sqrt(((keypoints_gt_relative[:, heva_eval_idx] - keypoints_3d_predicted_relative[:, h36m_eval_idx]) ** 2).sum(2)).mean(1)
+        else:
+            per_pose_error_relative = np.sqrt(((keypoints_gt_relative - keypoints_3d_predicted_relative) ** 2).sum(2)).mean(1)
 
         result = {
             'per_pose_error': self.evaluate_using_per_pose_error(per_pose_error, split_by_subject),
