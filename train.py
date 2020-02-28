@@ -281,11 +281,14 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     metric_dict['base_point_l2'].append(base_point_l2)
 
                 # save answers for evalulation
-                if not is_train:
+                # if not is_train:
+                if True:
                     results['keypoints_3d'].append(keypoints_3d_pred.detach().cpu().numpy())
                     results['indexes'].append(batch['indexes'])
+                    if dataloader.dataset.kind != 'ama': results['subject'].append(batch['subject'])
+                    results['action'].append(batch['action'])
 
-                # plot visualization
+                # plot visualization in TensorBoard
                 if master:
                     # if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
                     if True:
@@ -360,7 +363,8 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
     # calculate evaluation metrics
     if master:
-        if not is_train:
+        # if not is_train:
+        if True:
             results['keypoints_3d'] = np.concatenate(results['keypoints_3d'], axis=0)
             results['indexes'] = np.concatenate(results['indexes'])
 
@@ -376,7 +380,8 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             os.makedirs(checkpoint_dir, exist_ok=True)
 
             # dump results
-            with open(os.path.join(checkpoint_dir, "results.pkl"), 'wb') as fout:
+            result_file = "results_train.pkl" if is_train else "results_test.pkl"
+            with open(os.path.join(checkpoint_dir, result_file), 'wb') as fout:
                 pickle.dump(results, fout)
 
             # dump full metric

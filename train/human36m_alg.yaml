@@ -71,4 +71,4 @@ dataset:
     max_n_views: null
     num_workers: 0 # 8
 
-    retain_every_n_frames_in_test: 30
+    retain_every_n_frames_in_test: 10

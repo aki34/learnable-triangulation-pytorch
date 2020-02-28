@@ -75,8 +75,22 @@ class MultiViewDataset(Dataset):
         if kind != "ama":
             if kind == "human36m":
                 train_subjects = ['S1', 'S5', 'S6', 'S7', 'S8']
-                # train_subjects = ['S1']
                 test_subjects = ['S9', 'S11']
+                train_actions = ['Directions-1', 'Directions-2',
+                                 'Discussion-1', 'Discussion-2',
+                                 'Eating-1', 'Eating-2',
+                                 'Greeting-1', 'Greeting-2',
+                                 'Phoning-1', 'Phoning-2',
+                                 'Posing-1', 'Posing-2',
+                                 'Purchases-1', 'Purchases-2',
+                                 'Smoking-1', 'Smoking-2',
+                                 'TakingPhoto-1', 'TakingPhoto-2',
+                                 'Waiting-1', 'Waiting-2',
+                                 'Walking-1', 'Walking-2',
+                                 'WalkingDog-1', 'WalkingDog-2',
+                                 'WalkingTogether-1', 'WalkingTogether-2']
+                test_actions = ['Sitting-1', 'Sitting-2',
+                                'SittingDown-1', 'SittingDown-2']
             elif kind == "humaneva":
                 train_subjects = []
                 # test_subjects = ['S1', 'S2', 'S3']
@@ -84,13 +98,17 @@ class MultiViewDataset(Dataset):
 
             train_subjects = list(self.labels['subject_names'].index(x) for x in train_subjects)
             test_subjects  = list(self.labels['subject_names'].index(x) for x in test_subjects)
+            train_actions = list(self.labels['action_names'].index(x) for x in train_actions)
+            test_actions = list(self.labels['action_names'].index(x) for x in test_actions)
 
             indices = []
             if train:
                 mask = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
-                indices.append(np.nonzero(mask)[0])
+                # mask = np.isin(self.labels['table']['action_idx'], train_actions, assume_unique=True)
+                indices.append(np.nonzero(mask)[0][::4000])  # skip some frames for debug
             if test:
                 mask = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
+                # mask = np.isin(self.labels['table']['action_idx'], test_actions, assume_unique=True)
 
                 if not with_damaged_actions and kind == "human36m":
                     mask_S9 = self.labels['table']['subject_idx'] == self.labels['subject_names'].index('S9')
@@ -100,6 +118,14 @@ class MultiViewDataset(Dataset):
                     mask_damaged_actions = np.isin(self.labels['table']['action_idx'], damaged_actions)
 
                     mask &= ~(mask_S9 & mask_damaged_actions)
+                # if not with_damaged_actions and kind == "human36m":
+                #     mask_S9 = self.labels['table']['subject_idx'] == self.labels['subject_names'].index('S9')
+
+                #     damaged_actions = 'Greeting-2', 'SittingDown-2', 'Waiting-1'
+                #     damaged_actions = [self.labels['action_names'].index(x) for x in damaged_actions]
+                #     mask_damaged_actions = np.isin(self.labels['table']['action_idx'], damaged_actions)
+
+                #     mask &= ~(mask_S9 & mask_damaged_actions)
 
                 indices.append(np.nonzero(mask)[0][::retain_every_n_frames_in_test])
 
@@ -192,8 +218,8 @@ class MultiViewDataset(Dataset):
                 image = normalize_image(image)
 
             sample['images'].append(image)
-            # sample['detections'].append(bbox + (1.0,)) # TODO add real confidences
-            sample['detections'].append(bbox) # TODO add real confidences
+            # sample['detections'].append(bbox + (1.0,))  # TODO add real confidences
+            sample['detections'].append(bbox)  # TODO add real confidences
             sample['cameras'].append(retval_camera)
             sample['proj_matrices'].append(retval_camera.projection)
 
@@ -201,16 +227,21 @@ class MultiViewDataset(Dataset):
         # add dummy confidences
         sample['keypoints_3d'] = np.pad(
             shot['keypoints'][:self.num_keypoints],
-            ((0,0), (0,1)), 'constant', constant_values=1.0)
+            ((0, 0), (0, 1)), 'constant', constant_values=1.0)
 
         # build cuboid
-        # base_point = sample['keypoints_3d'][6, :3]
-        # sides = np.array([self.cuboid_side, self.cuboid_side, self.cuboid_side])
-        # position = base_point - sides / 2
-        # sample['cuboids'] = volumetric.Cuboid3D(position, sides)
+        if self.kind == "human36m":
+            base_point = sample['keypoints_3d'][6, :3]
+            sides = np.array([self.cuboid_side, self.cuboid_side, self.cuboid_side])
+            position = base_point - sides / 2
+            sample['cuboids'] = volumetric.Cuboid3D(position, sides)
 
         # save sample's index
         sample['indexes'] = idx
+        if self.kind != 'ama':
+            sample['subject'] = subject
+        sample['action'] = action
+        sample['frame_idx'] = frame_idx
 
         if self.keypoints_3d_pred is not None:
             sample['pred_keypoints_3d'] = self.keypoints_3d_pred[idx]
@@ -264,8 +295,7 @@ class MultiViewDataset(Dataset):
 
         return subject_scores
 
-    def evaluate(self, keypoints_3d_predicted, idx, split_by_subject=False, transfer_cmu_to_human36m=False, 
-    transfer_human36m_to_human36m=False):
+    def evaluate(self, keypoints_3d_predicted, idx, split_by_subject=False, transfer_cmu_to_human36m=False, transfer_human36m_to_human36m=False):
         keypoints_gt = self.labels['table']['keypoints'][:, :self.num_keypoints]
         # if keypoints_3d_predicted.shape != keypoints_gt.shape:
         #     raise ValueError(
@@ -281,17 +311,17 @@ class MultiViewDataset(Dataset):
 
             keypoints_gt = keypoints_gt[:, human36m_joints]
             keypoints_3d_predicted = keypoints_3d_predicted[:, cmu_joints]
-        
+
         if self.kind == 'humaneva':
             print('evaluate HumanEva dataset')
             # # L/R knee, L/R elbow, L/R wrist, L/R shoulder, L/R ankle
             # h36m_eval_idx = [4, 1, 14, 11, 15, 10, 13, 12, 5, 0]
-            # heva_eval_idx = [11, 15, 3, 7, 5, 9, 2, 6, 13, 17]            
+            # heva_eval_idx = [11, 15, 3, 7, 5, 9, 2, 6, 13, 17]
             # L/R knee, L/R shoulder, L/R ankle
             # h36m_eval_idx = [4, 1, 13, 12, 5, 0]
             # heva_eval_idx = [11, 15, 2, 6, 13, 17]
             # L/R knee, L/R shoulder, L/R ankle, pelvis, neck
-            h36m_eval_idx = [4,   1, 13, 12,  5,  0, 6, 8]
+            h36m_eval_idx = [ 4,  1, 13, 12,  5,  0, 6, 8]
             heva_eval_idx = [11, 15,  2,  6, 13, 17, 1, 0]
             print(h36m_eval_idx)
             print(heva_eval_idx)
