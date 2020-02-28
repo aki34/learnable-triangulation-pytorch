@@ -290,8 +290,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                 # plot visualization in TensorBoard
                 if master:
-                    # if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
-                    if True:
+                    if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
                         vis_kind = config.kind
                         if (config.transfer_cmu_to_human36m if hasattr(config, "transfer_cmu_to_human36m") else False):
                             vis_kind = "coco"
