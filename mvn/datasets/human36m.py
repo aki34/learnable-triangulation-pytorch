@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from mvn.utils.multiview import Camera
-from mvn.utils.img import get_square_bbox, resize_image, crop_image, normalize_image, scale_bbox
+from mvn.utils.img import get_square_bbox, resize_image, crop_image, normalize_image, scale_bbox, create_depth
 from mvn.utils import volumetric
 
 
@@ -32,7 +32,8 @@ class Human36MMultiViewDataset(Dataset):
                  kind="mpii",
                  undistort_images=False,
                  ignore_cameras=[],
-                 crop=True
+                 crop=True,
+                 action_id=0
                  ):
         """
             h36m_root:
@@ -73,27 +74,61 @@ class Human36MMultiViewDataset(Dataset):
         assert all(camera_idx in range(n_cameras) for camera_idx in self.ignore_cameras)
 
         train_subjects = ['S1', 'S5', 'S6', 'S7', 'S8']
+        # train_subjects = ['S1']
         test_subjects = ['S9', 'S11']
+        actions_list = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning', 'Posing', 'Purchases', 'Sitting', 'SittingDown', 'Smoking', 'TakingPhoto', 'Waiting', 'Walking', 'WalkingDog', 'WalkingTogether']
+        # train_actions = ['Directions-1', 'Directions-2']
+        # test_actions = ['Discussion-1', 'Discussion-2',
+        #                 'Eating-1', 'Eating-2',
+        #                 'Greeting-1', 'Greeting-2',
+        #                 'Phoning-1', 'Phoning-2',
+        #                 'Posing-1', 'Posing-2',
+        #                 'Purchases-1', 'Purchases-2',
+        #                 'Sitting-1', 'Sitting-2',
+        #                 'SittingDown-1', 'SittingDown-2',
+        #                 'Smoking-1', 'Smoking-2',
+        #                 'TakingPhoto-1', 'TakingPhoto-2',
+        #                 'Waiting-1', 'Waiting-2',
+        #                 'Walking-1', 'Walking-2',
+        #                 'WalkingDog-1', 'WalkingDog-2',
+        #                 'WalkingTogether-1', 'WalkingTogether-2']
+        train_actions = [f'{actions_list[action_id]}-1', f'{actions_list[action_id]}-2']
+        test_actions = []
+        for iii in range(15):
+            if iii == action_id:
+                continue
+            test_actions.append(f'{actions_list[iii]}-1')
+            test_actions.append(f'{actions_list[iii]}-2')
+
+        # if train: print('TRAIN ACTION:', train_actions)
+        # if test: print('TEST ACTION:', test_actions)
 
         train_subjects = list(self.labels['subject_names'].index(x) for x in train_subjects)
-        test_subjects  = list(self.labels['subject_names'].index(x) for x in test_subjects)
+        test_subjects  = list(self.labels['subject_names'].index(x) for x in test_subjects)        
+        train_actions = list(self.labels['action_names'].index(x) for x in train_actions)
+        test_actions  = list(self.labels['action_names'].index(x) for x in test_actions)
 
         indices = []
         if train:
-            mask = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
-            indices.append(np.nonzero(mask)[0])
+            mask_subj = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
+            # mask_action = np.isin(self.labels['table']['action_idx'], train_actions, assume_unique=True)
+            mask = mask_subj
+            indices.append(np.nonzero(mask)[0][::250])
         if test:
-            mask = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
+            mask_subj = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
+            # mask_action = np.isin(self.labels['table']['action_idx'], test_actions, assume_unique=True)
+            mask = mask_subj
 
-            if not with_damaged_actions:
-                mask_S9 = self.labels['table']['subject_idx'] == self.labels['subject_names'].index('S9')
+        if not with_damaged_actions:
+            mask_S9 = self.labels['table']['subject_idx'] == self.labels['subject_names'].index('S9')
 
-                damaged_actions = 'Greeting-2', 'SittingDown-2', 'Waiting-1'
-                damaged_actions = [self.labels['action_names'].index(x) for x in damaged_actions]
-                mask_damaged_actions = np.isin(self.labels['table']['action_idx'], damaged_actions)
+            damaged_actions = 'Greeting-2', 'SittingDown-2', 'Waiting-1'
+            damaged_actions = [self.labels['action_names'].index(x) for x in damaged_actions]
+            mask_damaged_actions = np.isin(self.labels['table']['action_idx'], damaged_actions)
 
-                mask &= ~(mask_S9 & mask_damaged_actions)
+            mask &= ~(mask_S9 & mask_damaged_actions)
 
+        if test:
             indices.append(np.nonzero(mask)[0][::retain_every_n_frames_in_test])
 
         self.labels['table'] = self.labels['table'][np.concatenate(indices)]
@@ -140,6 +175,12 @@ class Human36MMultiViewDataset(Dataset):
             assert os.path.isfile(image_path), '%s doesn\'t exist' % image_path
             image = cv2.imread(image_path)
 
+            # create depth image
+            # est3Dpose_path = os.path.join(self.h36m_root, subject, action, '3Dpose', f'pose{frame_idx:04d}.txt')
+            # assert os.path.isfile(est3Dpose_path), f'{est3Dpose_path} doesn\'t exist'
+            # pose3D = np.loadtxt(est3Dpose_path)
+            # depth_img = create_depth(pose3D, image.shape)
+
             # load camera
             shot_camera = self.labels['cameras'][shot['subject_idx'], camera_idx]
             retval_camera = Camera(shot_camera['R'], shot_camera['t'], shot_camera['K'], shot_camera['dist'], camera_name)
@@ -147,12 +188,14 @@ class Human36MMultiViewDataset(Dataset):
             if self.crop:
                 # crop image
                 image = crop_image(image, bbox)
+                # depth_img = crop_image(depth_img, bbox)
                 retval_camera.update_after_crop(bbox)
 
             if self.image_shape is not None:
                 # resize
                 image_shape_before_resize = image.shape[:2]
                 image = resize_image(image, self.image_shape)
+                # depth_img = resize_image(depth_img, self.image_shape)
                 retval_camera.update_after_resize(image_shape_before_resize, self.image_shape)
 
                 sample['image_shapes_before_resize'].append(image_shape_before_resize)
@@ -161,6 +204,7 @@ class Human36MMultiViewDataset(Dataset):
                 image = normalize_image(image)
 
             sample['images'].append(image)
+            # sample['depth_images'].append(depth_img)
             sample['detections'].append(bbox + (1.0,)) # TODO add real confidences
             sample['cameras'].append(retval_camera)
             sample['proj_matrices'].append(retval_camera.projection)
@@ -179,6 +223,11 @@ class Human36MMultiViewDataset(Dataset):
 
         # save sample's index
         sample['indexes'] = idx
+        sample['subject'] = subject
+        sample['subject_idx'] = shot['subject_idx']
+        sample['action'] = action
+        sample['action_idx'] = shot['action_idx']
+        sample['frame_idx'] = frame_idx
 
         if self.keypoints_3d_pred is not None:
             sample['pred_keypoints_3d'] = self.keypoints_3d_pred[idx]

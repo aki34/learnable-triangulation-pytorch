@@ -82,6 +82,6 @@ while True:
             action = dataset.labels['table'][sample_idx]['action_idx']
             if action != prev_action:
                 break
-    else: # in progess, just increment sample_idx
+    else:  # in progess, just increment sample_idx
         patience -= 1
         sample_idx += step

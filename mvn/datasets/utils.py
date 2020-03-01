@@ -3,6 +3,7 @@ import torch
 
 from mvn.utils.img import image_batch_to_torch
 
+
 def make_collate_fn(randomize_n_views=True, min_n_views=10, max_n_views=31):
 
     def collate_fn(items):
@@ -22,12 +23,18 @@ def make_collate_fn(randomize_n_views=True, min_n_views=10, max_n_views=31):
             indexes = np.arange(total_n_views)
 
         batch['images'] = np.stack([np.stack([item['images'][i] for item in items], axis=0) for i in indexes], axis=0).swapaxes(0, 1)
+        # batch['depth_images'] = np.stack([np.stack([item['depth_images'][i] for item in items], axis=0) for i in indexes], axis=0).swapaxes(0, 1)
         batch['detections'] = np.array([[item['detections'][i] for item in items] for i in indexes]).swapaxes(0, 1)
         batch['cameras'] = [[item['cameras'][i] for item in items] for i in indexes]
 
         batch['keypoints_3d'] = [item['keypoints_3d'] for item in items]
         # batch['cuboids'] = [item['cuboids'] for item in items]
         batch['indexes'] = [item['indexes'] for item in items]
+        batch['subject'] = [item['subject'] for item in items]
+        batch['subject_idx'] = [item['subject_idx'] for item in items]
+        batch['action'] = [item['action'] for item in items]
+        batch['action_idx'] = [item['action_idx'] for item in items]
+        batch['frame_idx'] = [item['frame_idx'] for item in items]
 
         try:
             batch['pred_keypoints_3d'] = np.array([item['pred_keypoints_3d'] for item in items])
@@ -41,6 +48,7 @@ def make_collate_fn(randomize_n_views=True, min_n_views=10, max_n_views=31):
 
 def worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
+
 
 def prepare_batch(batch, device, config, is_train=True):
     # images

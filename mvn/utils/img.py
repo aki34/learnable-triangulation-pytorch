@@ -113,3 +113,7 @@ def normalize_image(image):
 def denormalize_image(image):
     """Reverse to normalize_image() function"""
     return np.clip(255.0 * (image * IMAGENET_STD + IMAGENET_MEAN), 0, 255)
+
+
+def create_depth(pose, image_res):
+    pass

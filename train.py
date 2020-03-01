@@ -29,6 +29,8 @@ from mvn.utils import img, multiview, op, vis, misc, cfg
 from mvn.datasets import human36m
 from mvn.datasets import utils as dataset_utils
 
+from barbar import Bar
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -46,7 +48,7 @@ def parse_args():
     return args
 
 
-def setup_human36m_dataloaders(config, is_train, distributed_train):
+def setup_human36m_dataloaders(config, is_train, distributed_train, action_id):
     train_dataloader = None
     if is_train:
         # train
@@ -63,6 +65,7 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
             undistort_images=config.dataset.train.undistort_images,
             ignore_cameras=config.dataset.train.ignore_cameras if hasattr(config.dataset.train, "ignore_cameras") else [],
             crop=config.dataset.train.crop if hasattr(config.dataset.train, "crop") else True,
+            action_id=action_id
         )
 
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset) if distributed_train else None
@@ -94,6 +97,7 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
         undistort_images=config.dataset.val.undistort_images,
         ignore_cameras=config.dataset.val.ignore_cameras if hasattr(config.dataset.val, "ignore_cameras") else [],
         crop=config.dataset.val.crop if hasattr(config.dataset.val, "crop") else True,
+        action_id=action_id
     )
 
     val_dataloader = DataLoader(
@@ -110,9 +114,9 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
     return train_dataloader, val_dataloader, train_sampler
 
 
-def setup_dataloaders(config, is_train=True, distributed_train=False):
+def setup_dataloaders(config, is_train=True, distributed_train=False, action_id=0):
     if config.dataset.kind == 'human36m':
-        train_dataloader, val_dataloader, train_sampler = setup_human36m_dataloaders(config, is_train, distributed_train)
+        train_dataloader, val_dataloader, train_sampler = setup_human36m_dataloaders(config, is_train, distributed_train, action_id)
     else:
         raise NotImplementedError("Unknown dataset: {}".format(config.dataset.kind))
 
@@ -170,7 +174,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
     with grad_context():
         end = time.time()
 
-        iterator = enumerate(dataloader)
+        iterator = enumerate(Bar(dataloader))
         if is_train and config.opt.n_iters_per_epoch is not None:
             iterator = islice(iterator, config.opt.n_iters_per_epoch)
 
@@ -264,13 +268,18 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     metric_dict['base_point_l2'].append(base_point_l2)
 
                 # save answers for evalulation
-                if not is_train:
-                    results['keypoints_3d'].append(keypoints_3d_pred.detach().cpu().numpy())
-                    results['indexes'].append(batch['indexes'])
+                # if not is_train:
+                results['keypoints_3d'].append(keypoints_3d_pred.detach().cpu().numpy())
+                results['indexes'].append(batch['indexes'])
+                results['subject'].append(batch['subject'])
+                results['subject_idx'].append(batch['subject_idx'])
+                results['action'].append(batch['action'])
+                results['action_idx'].append(batch['action_idx'])
+                results['frame_idx'].append(batch['frame_idx'])
 
                 # plot visualization
                 if master:
-                    if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
+                    if n_iters_total % config.vis_freq == 0:  # or total_l2.item() > 500.0:
                         vis_kind = config.kind
                         if (config.transfer_cmu_to_human36m if hasattr(config, "transfer_cmu_to_human36m") else False):
                             vis_kind = "coco"
@@ -337,9 +346,13 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
     # calculate evaluation metrics
     if master:
-        if not is_train:
+        # if not is_train:
+        if True:
             results['keypoints_3d'] = np.concatenate(results['keypoints_3d'], axis=0)
             results['indexes'] = np.concatenate(results['indexes'])
+            results['subject_idx'] = np.concatenate(results['subject_idx'])
+            results['action_idx'] = np.concatenate(results['action_idx'])
+            results['frame_idx'] = np.concatenate(results['frame_idx'])
 
             try:
                 scalar_metric, full_metric = dataloader.dataset.evaluate(results['keypoints_3d'])
@@ -353,7 +366,8 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             os.makedirs(checkpoint_dir, exist_ok=True)
 
             # dump results
-            with open(os.path.join(checkpoint_dir, "results.pkl"), 'wb') as fout:
+            result_file = "results_train.pkl" if is_train else "resutls_test.pkl"
+            with open(os.path.join(checkpoint_dir, result_file), 'wb') as fout:
                 pickle.dump(results, fout)
 
             # dump full metric
@@ -382,7 +396,7 @@ def init_distributed(args):
     return True
 
 
-def main(args):
+def main(args, action_id):
     print("Number of available GPUs: {}".format(torch.cuda.device_count()))
 
     is_distributed = init_distributed(args)
@@ -440,10 +454,10 @@ def main(args):
         else:
             opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.opt.lr)
 
-
     # datasets
     print("Loading data...")
-    train_dataloader, val_dataloader, train_sampler = setup_dataloaders(config, distributed_train=is_distributed)
+    train_dataloader, val_dataloader, train_sampler = setup_dataloaders(config, distributed_train=is_distributed, action_id=action_id)
+    print(f'TRAIN:{len(train_dataloader.dataset)}/VAL:{len(val_dataloader.dataset)} ')
 
     # experiment
     experiment_dir, writer = None, None
@@ -470,7 +484,7 @@ def main(args):
 
                 torch.save(model.state_dict(), os.path.join(checkpoint_dir, "weights.pth"))
 
-            print(f"{n_iters_total_train} iters done.")
+            print(f"train {n_iters_total_train} iters / val {n_iters_total_val} iters done.")
     else:
         if args.eval_dataset == 'train':
             one_epoch(model, criterion, opt, config, train_dataloader, device, 0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
@@ -479,7 +493,9 @@ def main(args):
 
     print("Done.")
 
+
 if __name__ == '__main__':
+    # for action_id in range(1, 15):
     args = parse_args()
     print("args: {}".format(args))
-    main(args)
+    main(args, 0)
