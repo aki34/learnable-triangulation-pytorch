@@ -3,8 +3,8 @@ kind: "human36m"
 vis_freq: 1 # 1000
 vis_n_elements: 10
 
-# image_shape: [384, 384]
-image_shape: [256, 256]
+image_shape: [384, 384]
+# image_shape: [256, 256]
 
 opt:
   criterion: "MSESmooth"

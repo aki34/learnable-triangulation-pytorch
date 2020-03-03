@@ -113,7 +113,7 @@ def setup_human36m_dataloaders(config, is_train, distributed_train):
 
 
 def setup_dataloaders(config, is_train=True, distributed_train=False):
-    if config.dataset.kind in ['human36m', 'humaneva', 'ama']:
+    if config.dataset.kind in ['human36m', 'humaneva', 'ama', 'totalcap', 'mpi3d']:
         train_dataloader, val_dataloader, train_sampler = setup_human36m_dataloaders(config, is_train, distributed_train)
     else:
         raise NotImplementedError("Unknown dataset: {}".format(config.dataset.kind))
@@ -228,6 +228,11 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     h36m_eval_idx = [4, 1, 14, 11, 15, 10, 13, 12, 5, 0]
                     heva_eval_idx = [11, 15, 3, 7, 5, 9, 2, 6, 13, 17]
                     loss = criterion(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, heva_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, heva_eval_idx])
+                elif dataloader.dataset.kind == 'mpi3d':
+                    # L/R knee, L/R elbow, L/R wrist, L/R shoulder, L/R ankle
+                    h36m_eval_idx = [4, 1, 14, 11, 15, 10, 13, 12, 5, 0]
+                    mpi3d_eval_idx = [19, 24, 10, 15, 11, 16, 9, 14, 20, 25]
+                    loss = criterion(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, mpi3d_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, mpi3d_eval_idx])
                 else:
                     loss = criterion(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
                 total_loss += loss
@@ -260,6 +265,8 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 # calculate metrics
                 if dataloader.dataset.kind == 'humaneva':
                     l2 = KeypointsL2Loss()(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, heva_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, heva_eval_idx])
+                elif dataloader.dataset.kind == 'mpi3d':
+                    l2 = KeypointsL2Loss()(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, mpi3d_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, mpi3d_eval_idx])
                 else:
                     l2 = KeypointsL2Loss()(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
                 metric_dict['l2'].append(l2.item())
@@ -290,11 +297,11 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                 # plot visualization in TensorBoard
                 if master:
-                    if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
+                    if n_iters_total % config.vis_freq == 0:  # or total_l2.item() > 500.0:
                         vis_kind = config.kind
                         if (config.transfer_cmu_to_human36m if hasattr(config, "transfer_cmu_to_human36m") else False):
                             vis_kind = "coco"
-                        if vis_kind in ['humaneva', 'ama']:
+                        if vis_kind in ['humaneva', 'ama', 'totalcap', 'mpi3d']:
                             pred_kind = 'human36m'
                         else:
                             pred_kind = None
@@ -366,6 +373,8 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
         if True:
             results['keypoints_3d'] = np.concatenate(results['keypoints_3d'], axis=0)
             results['indexes'] = np.concatenate(results['indexes'])
+            results['subject'] = np.concatenate(results['subject'])
+            results['action'] = np.concatenate(results['action'])
 
             try:
                 scalar_metric, full_metric = dataloader.dataset.evaluate(results['keypoints_3d'], results['indexes'])
