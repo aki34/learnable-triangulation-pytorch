@@ -264,7 +264,7 @@ def visualize_volumes(images_batch, volumes_batch, proj_matricies_batch,
     return fig_image
 
 
-def draw_2d_pose(keypoints, ax, kind='cmu', keypoints_mask=None, point_size=2, line_width=1, radius=None, color=None):
+def draw_2d_pose(keypoints, ax, kind='cmu', keypoints_mask=None, point_size=5, line_width=2, radius=None, color=None):
     """
     Visualizes a 2d skeleton
 

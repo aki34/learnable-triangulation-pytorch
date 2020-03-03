@@ -113,7 +113,7 @@ class Human36MMultiViewDataset(Dataset):
             mask_subj = np.isin(self.labels['table']['subject_idx'], train_subjects, assume_unique=True)
             # mask_action = np.isin(self.labels['table']['action_idx'], train_actions, assume_unique=True)
             mask = mask_subj
-            indices.append(np.nonzero(mask)[0][::250])
+            indices.append(np.nonzero(mask)[0][::1000])
         if test:
             mask_subj = np.isin(self.labels['table']['subject_idx'], test_subjects, assume_unique=True)
             # mask_action = np.isin(self.labels['table']['action_idx'], test_actions, assume_unique=True)
@@ -175,27 +175,44 @@ class Human36MMultiViewDataset(Dataset):
             assert os.path.isfile(image_path), '%s doesn\'t exist' % image_path
             image = cv2.imread(image_path)
 
-            # create depth image
-            # est3Dpose_path = os.path.join(self.h36m_root, subject, action, '3Dpose', f'pose{frame_idx:04d}.txt')
-            # assert os.path.isfile(est3Dpose_path), f'{est3Dpose_path} doesn\'t exist'
-            # pose3D = np.loadtxt(est3Dpose_path)
-            # depth_img = create_depth(pose3D, image.shape)
-
             # load camera
             shot_camera = self.labels['cameras'][shot['subject_idx'], camera_idx]
             retval_camera = Camera(shot_camera['R'], shot_camera['t'], shot_camera['K'], shot_camera['dist'], camera_name)
 
+            # create depth image
+            depth_image_path = os.path.join(self.h36m_root, subject, action, 'depthSequence', camera_name, f'depth_{frame_idx:06d}'+'_{:04d}.jpg')
+            if os.path.exists(depth_image_path.format(self.num_keypoints-1)):
+                img_list = []
+                for j in range(self.num_keypoints):
+                    img_list.append([cv2.imread(depth_image_path.format(j), flags=cv2.IMREAD_GRAYSCALE)])
+                depth_img = np.vstack(img_list)
+            else:
+                est3Dpose_path = os.path.join(self.h36m_root, subject, action, '3Dpose_LT', f'pose{frame_idx:04d}.txt')
+                assert os.path.isfile(est3Dpose_path), f'{est3Dpose_path} doesn\'t exist'
+                pose3D = np.loadtxt(est3Dpose_path)
+                depth_img = create_depth(pose3D, image.shape, retval_camera.K, retval_camera.R, retval_camera.t)
+                assert depth_img.shape[0] == self.num_keypoints, f'Depth num and keypoint num isn\'t equivalent.'
+                os.makedirs(os.path.dirname(depth_image_path), exist_ok=True)
+                for j in range(self.num_keypoints):
+                    cv2.imwrite(depth_image_path.format(j), depth_img[j])
+
             if self.crop:
                 # crop image
                 image = crop_image(image, bbox)
-                # depth_img = crop_image(depth_img, bbox)
+                depth_img_list = []
+                for j in range(self.num_keypoints):
+                    depth_img_list.append([crop_image(depth_img[j], bbox)])
+                depth_img = np.vstack(depth_img_list)
                 retval_camera.update_after_crop(bbox)
 
             if self.image_shape is not None:
                 # resize
                 image_shape_before_resize = image.shape[:2]
                 image = resize_image(image, self.image_shape)
-                # depth_img = resize_image(depth_img, self.image_shape)
+                depth_img_list = []
+                for j in range(self.num_keypoints):
+                    depth_img_list.append([resize_image(depth_img[j], np.array(self.image_shape, dtype=int)//4)])
+                depth_img = np.vstack(depth_img_list)
                 retval_camera.update_after_resize(image_shape_before_resize, self.image_shape)
 
                 sample['image_shapes_before_resize'].append(image_shape_before_resize)
@@ -204,8 +221,8 @@ class Human36MMultiViewDataset(Dataset):
                 image = normalize_image(image)
 
             sample['images'].append(image)
-            # sample['depth_images'].append(depth_img)
-            sample['detections'].append(bbox + (1.0,)) # TODO add real confidences
+            sample['depth_images'].append((depth_img / 255).transpose(1, 2, 0))
+            sample['detections'].append(bbox + (1.0,))  # TODO add real confidences
             sample['cameras'].append(retval_camera)
             sample['proj_matrices'].append(retval_camera.projection)
 

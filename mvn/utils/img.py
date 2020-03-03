@@ -115,5 +115,21 @@ def denormalize_image(image):
     return np.clip(255.0 * (image * IMAGENET_STD + IMAGENET_MEAN), 0, 255)
 
 
-def create_depth(pose, image_res):
-    pass
+def create_depth(pose, image_res, cammat, R, t):
+    pose_cam = (np.dot(R, pose.T) + t).T
+    # pose_cam = np.dot(np.linalg.inv(projmat), pose.reshape(3, -1))
+    pose_proj = pose_cam / pose_cam[:, 2].reshape(-1, 1)
+    pose_proj = np.dot(cammat, pose_proj.T).T[:, :2]
+    depth = pose_cam[:, 2]
+
+    # make depth map
+    img_list = []
+    for j in range(pose_proj.shape[0]):
+        img_tmp = np.zeros(image_res[:2])
+        x, y = int(pose_proj[j, 0]), int(pose_proj[j, 1])
+        if (0 <= x < image_res[0]) and (0 <= y < image_res[1]):
+            col = depth[j] / depth[6] * 128
+            cv2.circle(img_tmp, (x, y), 5, (col,)*3, thickness=-1)
+        img_list.append([img_tmp])
+    img = np.vstack(img_list)
+    return img

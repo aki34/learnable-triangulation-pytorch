@@ -23,7 +23,7 @@ def make_collate_fn(randomize_n_views=True, min_n_views=10, max_n_views=31):
             indexes = np.arange(total_n_views)
 
         batch['images'] = np.stack([np.stack([item['images'][i] for item in items], axis=0) for i in indexes], axis=0).swapaxes(0, 1)
-        # batch['depth_images'] = np.stack([np.stack([item['depth_images'][i] for item in items], axis=0) for i in indexes], axis=0).swapaxes(0, 1)
+        batch['depth_images'] = np.stack([np.stack([item['depth_images'][i] for item in items], axis=0) for i in indexes], axis=0).swapaxes(0, 1)
         batch['detections'] = np.array([[item['detections'][i] for item in items] for i in indexes]).swapaxes(0, 1)
         batch['cameras'] = [[item['cameras'][i] for item in items] for i in indexes]
 
@@ -57,8 +57,14 @@ def prepare_batch(batch, device, config, is_train=True):
         image_batch = image_batch_to_torch(image_batch)
         image_batch = image_batch.to(device)
         images_batch.append(image_batch)
+    depthmap_batch = []
+    for depth_batch in batch['depth_images']:
+        depth_batch = image_batch_to_torch(depth_batch)
+        depth_batch = depth_batch.to(device)
+        depthmap_batch.append(depth_batch)
 
     images_batch = torch.stack(images_batch, dim=0)
+    depthmap_batch = torch.stack(depthmap_batch, dim=0)
 
     # 3D keypoints
     keypoints_3d_batch_gt = torch.from_numpy(np.stack(batch['keypoints_3d'], axis=0)[:, :, :3]).float().to(device)
@@ -70,4 +76,4 @@ def prepare_batch(batch, device, config, is_train=True):
     proj_matricies_batch = torch.stack([torch.stack([torch.from_numpy(camera.projection) for camera in camera_batch], dim=0) for camera_batch in batch['cameras']], dim=0).transpose(1, 0)  # shape (batch_size, n_views, 3, 4)
     proj_matricies_batch = proj_matricies_batch.float().to(device)
 
-    return images_batch, keypoints_3d_batch_gt, keypoints_3d_validity_batch_gt, proj_matricies_batch
+    return images_batch, depthmap_batch, keypoints_3d_batch_gt, keypoints_3d_validity_batch_gt, proj_matricies_batch

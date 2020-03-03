@@ -187,11 +187,11 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     print("Found None batch")
                     continue
 
-                images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
+                images_batch, depth_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
 
                 keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
                 if model_type == "alg" or model_type == "ransac":
-                    keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch, batch)
+                    keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, depth_batch, proj_matricies_batch, batch)
                 elif model_type == "vol":
                     keypoints_3d_pred, heatmaps_pred, volumes_pred, confidences_pred, cuboids_pred, coord_volumes_pred, base_points_pred = model(images_batch, proj_matricies_batch, batch)
 
@@ -350,7 +350,9 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
         if True:
             results['keypoints_3d'] = np.concatenate(results['keypoints_3d'], axis=0)
             results['indexes'] = np.concatenate(results['indexes'])
+            results['subject'] = np.concatenate(results['subject'])
             results['subject_idx'] = np.concatenate(results['subject_idx'])
+            results['action'] = np.concatenate(results['action'])
             results['action_idx'] = np.concatenate(results['action_idx'])
             results['frame_idx'] = np.concatenate(results['frame_idx'])
 
@@ -366,7 +368,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             os.makedirs(checkpoint_dir, exist_ok=True)
 
             # dump results
-            result_file = "results_train.pkl" if is_train else "resutls_test.pkl"
+            result_file = "results_train.pkl" if is_train else "results_test.pkl"
             with open(os.path.join(checkpoint_dir, result_file), 'wb') as fout:
                 pickle.dump(results, fout)
 

@@ -145,17 +145,17 @@ class AlgebraicTriangulationNet(nn.Module):
         self.heatmap_softmax = config.model.heatmap_softmax
         self.heatmap_multiplier = config.model.heatmap_multiplier
 
-
-    def forward(self, images, proj_matricies, batch):
+    def forward(self, images, depth_images, proj_matricies, batch):
         device = images.device
         batch_size, n_views = images.shape[:2]
 
         # reshape n_views dimension to batch dimension
         images = images.view(-1, *images.shape[2:])
+        depth_images = depth_images.view(-1, *depth_images.shape[2:])
 
         # forward backbone and integral
         if self.use_confidences:
-            heatmaps, _, alg_confidences, _ = self.backbone(images)
+            heatmaps, _, alg_confidences, _ = self.backbone(images, depth_images)
         else:
             heatmaps, _, _, _ = self.backbone(images)
             alg_confidences = torch.ones(batch_size * n_views, heatmaps.shape[1]).type(torch.float).to(device)
