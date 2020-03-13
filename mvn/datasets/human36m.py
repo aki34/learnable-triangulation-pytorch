@@ -100,7 +100,7 @@ class MultiViewDataset(Dataset):
                 test_subjects = ['s1']
             elif kind == "mpi3d":
                 train_subjects = []
-                test_subjects = ['S1']
+                test_subjects = ['S1', 'S2']
 
             train_subjects = list(self.labels['subject_names'].index(x) for x in train_subjects)
             test_subjects  = list(self.labels['subject_names'].index(x) for x in test_subjects)
@@ -143,6 +143,8 @@ class MultiViewDataset(Dataset):
             self.num_keypoints = 20
         elif kind == "mpi3d":
             self.num_keypoints = 28
+        elif kind == "totalcap":
+            self.num_keypoints = 21
         else:
             self.num_keypoints = 17
         # self.num_keypoints = 16 if kind == "mpii" else 17
@@ -198,9 +200,9 @@ class MultiViewDataset(Dataset):
                 else:
                     image_path = os.path.join(self.data_root, action, 'images', f'Image{camera_name}_{frame_idx:04d}.png')
             elif self.kind == "totalcap":
-                image_path = os.path.join(self.data_root, subject, 'Images', action, camera_name, f'frm{frame_idx:04d}_{camera_name}.jpg')
+                image_path = os.path.join(self.data_root, subject, 'Images', action, f'cam{camera_name}', f'frm{frame_idx:04d}_cam{camera_name}.jpg')
             elif self.kind == "mpi3d":
-                image_path = os.path.join(self.data_root, subject, action, 'Images', f'cam{camera_name}', f'frm{frame_idx:04d}_cam{camera_name}.jpg')
+                image_path = os.path.join(self.data_root, subject, action, 'Images', f'cam{camera_name}', f'frm{frame_idx:06d}_cam{camera_name}.jpg')
             else:
                 image_path = os.path.join(self.data_root, subject, 'imageSequence', action, camera_name, f'img_{frame_idx:06d}.jpg')
             assert os.path.isfile(image_path), '%s doesn\'t exist' % image_path

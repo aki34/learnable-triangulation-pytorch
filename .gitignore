@@ -108,3 +108,10 @@ venv.bak/
 
 # log directory
 /logs/
+
+# vs code
+/.vscode/
+
+# others
+.flake8
+commit_message.txt

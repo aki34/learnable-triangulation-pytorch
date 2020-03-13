@@ -1,0 +1,3 @@
+docker build -t klab/mv3dpose-pytorch-cuda .
+
+docker run --gpus all -v /home/klab14/MV3Dpose/learnable-triangulation-pytorch:/app -it klab/mv3dpose-pytorch-cuda /bin/bash

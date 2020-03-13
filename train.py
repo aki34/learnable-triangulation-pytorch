@@ -233,6 +233,11 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     h36m_eval_idx = [4, 1, 14, 11, 15, 10, 13, 12, 5, 0]
                     mpi3d_eval_idx = [19, 24, 10, 15, 11, 16, 9, 14, 20, 25]
                     loss = criterion(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, mpi3d_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, mpi3d_eval_idx])
+                elif dataloader.dataset.kind == 'totalcap':
+                    # L/R knee, L/R elbow, L/R wrist, L/R shoulder, L/R ankle
+                    h36m_eval_idx = [4, 1, 14, 11, 15, 10, 13, 12, 5, 0]
+                    totalcap_eval_idx = [16, 19, 9, 13, 10, 14, 8, 12, 17, 20]
+                    loss = criterion(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, totalcap_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, totalcap_eval_idx])
                 else:
                     loss = criterion(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
                 total_loss += loss
@@ -267,6 +272,8 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     l2 = KeypointsL2Loss()(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, heva_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, heva_eval_idx])
                 elif dataloader.dataset.kind == 'mpi3d':
                     l2 = KeypointsL2Loss()(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, mpi3d_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, mpi3d_eval_idx])
+                elif dataloader.dataset.kind == 'totalcap':
+                    l2 = KeypointsL2Loss()(keypoints_3d_pred[:, h36m_eval_idx] * scale_keypoints_3d, keypoints_3d_gt[:, totalcap_eval_idx] * scale_keypoints_3d, keypoints_3d_binary_validity_gt[:, totalcap_eval_idx])
                 else:
                     l2 = KeypointsL2Loss()(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
                 metric_dict['l2'].append(l2.item())
@@ -292,8 +299,11 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 if True:
                     results['keypoints_3d'].append(keypoints_3d_pred.detach().cpu().numpy())
                     results['indexes'].append(batch['indexes'])
-                    if dataloader.dataset.kind != 'ama': results['subject'].append(batch['subject'])
+                    if dataloader.dataset.kind != 'ama':
+                        results['subject'].append(batch['subject'])
                     results['action'].append(batch['action'])
+                    if model_type in ["alg", "ransac"]:
+                        results['keypoints_2d'].append(keypoints_2d_pred.detach().cpu().numpy())
 
                 # plot visualization in TensorBoard
                 if master:
@@ -373,8 +383,12 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
         if True:
             results['keypoints_3d'] = np.concatenate(results['keypoints_3d'], axis=0)
             results['indexes'] = np.concatenate(results['indexes'])
-            results['subject'] = np.concatenate(results['subject'])
+            if dataloader.dataset.kind != 'ama':
+                results['subject'] = np.concatenate(results['subject'])
             results['action'] = np.concatenate(results['action'])
+            # if model_type in ["alg", "ransac"]:
+            #     results['keypoints_2d'] = np.concatenate(results['keypoints_2d'], axis=0)
+            
 
             try:
                 scalar_metric, full_metric = dataloader.dataset.evaluate(results['keypoints_3d'], results['indexes'])

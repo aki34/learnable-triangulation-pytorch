@@ -1,0 +1,23 @@
+Following description is download from http://cmp.felk.cvut.cz/~svoboda/SelfCal/index.html
+
+Short description of the essential output parameters
+----------------------------------------------------
+
+- camera%d.Pmat.cal ... contains the 3x4 euclidean projection matrix
+  which encodes all linear parameters. You can use function
+  ./MultiCamValidation/CoreFunctions/P2KRtC.m to decompose it into the
+  intrinsic parameteres in 3x3 K matrix, rotation matrix R and
+  translation vector t, as well as the position of the camera center C
+  in the common world coordinate system.
+
+- basename%d.rad ... contains the paremeters needed for undoing radial
+  distortion. They should be directly applicable in the openCV
+  implementation of the undoing non-linear distortion.
+
+- *.eps figures. I hope the names are rather self-explaining.
+
+------------------------------------------------------
+
+You can edit the function
+./MultiCamSelfCal/OutputFunctions/savecalpar.m according to your
+needs. 
